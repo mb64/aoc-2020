@@ -7,6 +7,26 @@
 
 macdef NULL = $extval(ptr null,"0")
 
+
+(* Malloc stuff *)
+
+absviewtype MallocToken(a:vt@ype+, l:addr, n:int)
+
+extern praxi malloc_null {a:vt@ype} (): MallocToken(a,null,0)
+
+extern fn reallocarray {a:t@ype}{l:addr}{n:nat}{m:nat} (
+  array: array_v(a,l,n), tok: MallocToken(a,l,n)
+| p: ptr l, len: size_t m, size: sizeof_t a
+): [l2:addr] (array_v(a,l2,m), MallocToken(a,l2,m) | ptr l2) =
+  "reallocarray"
+
+extern fn free {a:vt@ype}{l:addr}{n:nat} (
+  array: array_v(a,l,n), tok: MallocToken(a,l,n)
+| ptr: ptr l): void = "free"
+
+
+(* Vec stuff *)
+
 typedef VecStorage(l:addr, len:int, cap:int) = @{
   ptr= ptr l,
   len= size_t len,
@@ -14,14 +34,15 @@ typedef VecStorage(l:addr, len:int, cap:int) = @{
 }
 vtypedef VecVT(a:t@ype+, l:addr, len:int, cap:int) = (
   array_v(a, l, len),
-  array_v(a, l+len*sizeof(a), cap-len)
+  array_v(a, l+len*sizeof(a), cap-len),
+  MallocToken(a, l, cap)
 | VecStorage(l, len, cap)
 )
 vtypedef Vec(a:t@ype+, len:int) = [l:addr] [cap:int| cap >= len] VecVT(a, l, len, cap)
 vtypedef Vec0(a:t@ype+) = [len:nat] Vec(a,len)
 
 fn empty_vec{a:t@ype}(): VecVT(a,null,0,0) = (
-  array_v_nil(), array_v_nil()
+  array_v_nil(), array_v_nil(), malloc_null()
   | @{ ptr= NULL, len= g1int2uint 0, cap= g1int2uint 0 }
 )
 
@@ -42,13 +63,13 @@ prfn array_v_unsnoc {a:vt@ype} {l:addr} {n:pos}
 
 fn {a:t@ype} vec_pop {l:addr}{n:pos}{cap:int} (v: &VecVT(a,l,n,cap)>>VecVT(a,l,n-1,cap)):<!wrt> a =
   let
-    val (items, extra | storage) = v
+    val (items, extra, tok | storage) = v
     prval (init, l) = array_v_unsnoc items
     // Why is this type annotation necessary?
     prval last = l : a @ l + (n-1)*sizeof(a)
     val ptr = ptr_add<a>(storage.ptr, storage.len - 1)
     val x = !ptr
-    val () = v := (init, array_v_cons(last, extra) | @{
+    val () = v := (init, array_v_cons(last, extra), tok | @{
         ptr= storage.ptr,
         len= storage.len - 1,
         cap= storage.cap
@@ -63,23 +84,19 @@ prfn my_array_v_split {a:vt@ype}{n:nat}{m:nat | m <= n}{l:addr} (
 ): (array_v(a,l,m), array_v(a,l+m*sizeof(a),n-m)) =
   array_v_split(pf)
 
-extern fn reallocarray {a:t@ype}{l:addr}{n:nat}{m:nat} (
-  array: array_v(a,l,n) | p: ptr l, len: size_t m, size: sizeof_t a
-): [l2:addr] (array_v(a,l2,m) | ptr l2) = "reallocarray"
-
 fn {a:t@ype} reserve_capacity {l:addr}{n:nat}{cap:int|cap >= n}{new_cap:nat} (
   v: &VecVT(a,l,n,cap) >> [c:nat|c >= new_cap][l2:addr] VecVT(a,l2,n,c),
   new_cap: size_t new_cap
 ): void =
   let
-    val (items, extra | @{ ptr= ptr, len= len, cap= cap}) = v
+    val (items, extra, tok | @{ ptr= ptr, len= len, cap= cap}) = v
   in if cap >= new_cap then begin
-    v := (items, extra | @{ ptr= ptr, len= len, cap= cap})
+    v := (items, extra, tok | @{ ptr= ptr, len= len, cap= cap})
   end else let
     val new_cap = cap + new_cap // grow size exponentially
-    val (new_items | new_ptr) = reallocarray(array_v_unsplit(items, extra) | ptr, new_cap, sizeof<a>)
+    val (new_items, new_tok | new_ptr) = reallocarray(array_v_unsplit(items, extra), tok | ptr, new_cap, sizeof<a>)
     prval (items, extra) = my_array_v_split{a}{cap + new_cap}{n}(new_items)
-    val () = v := (items, extra | @{
+    val () = v := (items, extra, new_tok | @{
         ptr= new_ptr,
         len= len,
         cap= new_cap
@@ -92,11 +109,11 @@ fn {a:t@ype} vec_push_good {n:nat}{l:addr}{cap:nat|cap >= n + 1} (
   x: a
 ): void =
   let
-    val (items, extra | @{ ptr= ptr, len= len, cap= cap}) = v
+    val (items, extra, tok | @{ ptr= ptr, len= len, cap= cap}) = v
     prval (head, tail) = array_v_uncons extra
     val next_item_ptr = ptr_add<a>(ptr, len)
     val () = !next_item_ptr := x
-    val () = v := (array_v_snoc(items, head), tail | @{
+    val () = v := (array_v_snoc(items, head), tail, tok | @{
         ptr= ptr,
         len= len + 1,
         cap= cap
@@ -105,16 +122,16 @@ fn {a:t@ype} vec_push_good {n:nat}{l:addr}{cap:nat|cap >= n + 1} (
 
 fn {a:t@ype} vec_push {n:nat} (v: &Vec(a,n)>>Vec(a,n+1), x: a): void =
   let
-    val (items, extra | @{ ptr= ptr, len= len, cap= cap }) = v
-    val () = v := (items, extra | @{ ptr= ptr, len= len, cap= cap})
+    val (items, extra, tok | @{ ptr= ptr, len= len, cap= cap }) = v
+    val () = v := (items, extra, tok | @{ ptr= ptr, len= len, cap= cap})
     val () = reserve_capacity(v, len + 1)
   in vec_push_good(v, x) end
 
 fn {a:t@ype} vec_drop (v: Vec0(a)): void =
   let
-    extern fn free {l:addr}{n:nat} (pf: array_v(a,l,n) | ptr: ptr l): void = "free"
-    val (items, extra | @{ ptr= ptr, len= len, cap= cap }) = v
-  in free(array_v_unsplit(items, extra) | ptr) end
+    val (items, extra, tok | @{ ptr= ptr, len= len, cap= cap }) = v
+  in free(array_v_unsplit(items, extra), tok | ptr) end
+
 
 (* now the actual implementation :/ *)
 
@@ -173,11 +190,11 @@ fun solve{l:addr}{n:nat} (
 
 implement main0 () =
   let
-    val (items, extra | @{ ptr= p, len= n, cap= cap }) = read_nums()
+    val (items, extra, tok | @{ ptr= p, len= n, cap= cap }) = read_nums()
     val result = solve (items | p, n)
     val () = print result
     val () = print '\n'
-    val () = vec_drop @(items, extra | @{ ptr= p, len= n, cap= cap })
+    val () = vec_drop @(items, extra, tok | @{ ptr= p, len= n, cap= cap })
   in () end
 
 ////
