@@ -19,12 +19,11 @@ long count(int dx, int dy) {
         x = x % WIDTH;
         n += input[y * (WIDTH + 1) + x] == '#';
     }
-    printf("count(%d,%d) == %ld\n", dx,dy,n);
-    printf("%d %d\n", x, y);
     return n;
 }
 
 int main() {
+    printf("part 1: %ld\n", count(3,1));
     long res = count(1,1) * count(3,1) * count(5,1) * count(7,1) * count(1,2);
-    printf("%ld\n", res);
+    printf("part 2: %ld\n", res);
 }
