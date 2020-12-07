@@ -8,11 +8,10 @@ process _ = []
 
 main = do
   i <- map (\(a:b:x) -> (unwords [a,b], process (drop 2 x))) . map words . lines <$> readFile "input.txt"
-  let b = map (second (map snd)) i
-  let dfs x = let l = fromJust $ lookup x b in l ++ concatMap dfs l
+  let m1 = Map.fromListWith S.union $ i >>= \(x,l) -> l <&> \(_,y) -> (y,S.insert x $ fromMaybe mempty $ M.lookup x m1)
   putStr "Part 1: "
-  print $ length $ filter (\x -> "shiny gold"`elem`dfs x) $ map fst b
-  let r x = sum $ map (\(n,y) -> n * (1 + r y)) $ fromJust $ lookup x i
+  print $ length $ m1 M.! "shiny gold"
+  let m2 = Map.fromList $ i <&> \(x,l) -> (x,sum $ map (\(n,y) -> n * (1 + m2 M.! y)) l)
   putStr "Part 2: "
-  print $ r "shiny gold"
+  print $ m2 M.! "shiny gold"
 
