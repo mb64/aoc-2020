@@ -50,5 +50,7 @@ import Data.IntSet qualified as ISet
 import Data.IntMap.Lazy qualified as IMap
 import Data.HashMap.Lazy qualified as HMap
 import System.IO
-import Text.Read
+import Text.Read (readMaybe)
 import Data.List.Split
+import Data.Complex
+import Control.DeepSeq
