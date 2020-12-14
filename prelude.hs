@@ -36,6 +36,7 @@ import Data.Bifunctor
 import Data.Ord
 import Data.Int
 import Data.Word
+import Data.Bits
 import Data.Bool
 import Data.Char
 import Data.Function (on, (&))
@@ -54,3 +55,4 @@ import Text.Read (readMaybe)
 import Data.List.Split
 import Data.Complex
 import Control.DeepSeq
+import Debug.Trace
