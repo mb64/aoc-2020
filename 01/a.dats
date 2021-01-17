@@ -46,43 +46,18 @@ fn empty_vec{a:t@ype}(): VecVT(a,null,0,0) = (
   | @{ ptr= NULL, len= g1int2uint 0, cap= g1int2uint 0 }
 )
 
-(* array_v_snoc and array_v_unsnoc *)
-prfn array_v_snoc {a:vt@ype} {l:addr} {n:nat}
-  (init: array_v(a,l,n), last: a @ l+n*sizeof(a)): array_v(a,l,n+1) =
-  let
-    prval tail = array_v_cons(last, array_v_nil())
-  in array_v_unsplit(init, tail) end
-
-prfn array_v_unsnoc {a:vt@ype} {l:addr} {n:pos}
-  (arr: array_v(a,l,n)): (array_v(a,l,n-1), a @ l+(n-1)*sizeof(a)) =
-  let
-    prval (init, tail) = array_v_split{a}{l}{n}{n-1}(arr)
-    prval (last, nil) = array_v_uncons(tail)
-    prval () = array_v_unnil(nil)
-  in (init, last) end
-
 fn {a:t@ype} vec_pop {l:addr}{n:pos}{cap:int} (v: &VecVT(a,l,n,cap)>>VecVT(a,l,n-1,cap)):<!wrt> a =
   let
     val (items, extra, tok | storage) = v
-    prval (init, l) = array_v_unsnoc items
-    // Why is this type annotation necessary?
-    prval last = l : a @ l + (n-1)*sizeof(a)
+    prval (init, l) = array_v_unextend items
     val ptr = ptr_add<a>(storage.ptr, storage.len - 1)
     val x = !ptr
-    val () = v := (init, array_v_cons(last, extra), tok | @{
+    val () = v := (init, array_v_cons(l, extra), tok | @{
         ptr= storage.ptr,
         len= storage.len - 1,
         cap= storage.cap
       })
   in x end
-
-// aaaa, only needed bc ATS needs to be given some complete prefix of the
-// implicit arguments, so if you want the address to be inferred, you
-// gotta rearrange them yourself
-prfn my_array_v_split {a:vt@ype}{n:nat}{m:nat | m <= n}{l:addr} (
-  pf: array_v(a,l,n)
-): (array_v(a,l,m), array_v(a,l+m*sizeof(a),n-m)) =
-  array_v_split(pf)
 
 fn {a:t@ype} reserve_capacity {l:addr}{n:nat}{cap:int|cap >= n}{new_cap:nat} (
   v: &VecVT(a,l,n,cap) >> [c:nat|c >= new_cap][l2:addr] VecVT(a,l2,n,c),
@@ -95,7 +70,7 @@ fn {a:t@ype} reserve_capacity {l:addr}{n:nat}{cap:int|cap >= n}{new_cap:nat} (
   end else let
     val new_cap = cap + new_cap // grow size exponentially
     val (new_items, new_tok | new_ptr) = reallocarray(array_v_unsplit(items, extra), tok | ptr, new_cap, sizeof<a>)
-    prval (items, extra) = my_array_v_split{a}{cap + new_cap}{n}(new_items)
+    prval (items, extra) = array_v_split{a}{..}{cap + new_cap}{n}(new_items)
     val () = v := (items, extra, new_tok | @{
         ptr= new_ptr,
         len= len,
@@ -113,7 +88,7 @@ fn {a:t@ype} vec_push_good {n:nat}{l:addr}{cap:nat|cap >= n + 1} (
     prval (head, tail) = array_v_uncons extra
     val next_item_ptr = ptr_add<a>(ptr, len)
     val () = !next_item_ptr := x
-    val () = v := (array_v_snoc(items, head), tail, tok | @{
+    val () = v := (array_v_extend(items, head), tail, tok | @{
         ptr= ptr,
         len= len + 1,
         cap= cap
@@ -141,7 +116,7 @@ int ats_scanf(void *format, void *x) {
 }
 %}
 
-extern fun scanf {l:addr} (pf: !int @ l | format: string, value: ptr l): int = "ats_scanf"
+extern fun scanf (format: string, value: &int): int = "ats_scanf"
 
 fn read_nums(): [n:nat] Vec(int,n) =
   let
@@ -149,7 +124,7 @@ fn read_nums(): [n:nat] Vec(int,n) =
     fun loop{n:nat}(xs: &Vec(int,n) >> Vec0(int)): void =
       let
         var x: int = 0
-        val res = scanf(view@x | "%d\n", addr@x)
+        val res = scanf("%d\n", x)
       in if res != ~1 then (
         vec_push(xs, x);
         loop(xs))
